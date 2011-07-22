@@ -4,9 +4,9 @@
  |
  | BUTO PHP API WRAPPER
  | ================================================================================ 
- | Version: 0.7
- | Last modified: 23/03/2011
- | Last modified by: Greg
+ | Version: 0.8
+ | Last modified: 22/07/2011
+ | Last modified by: Irfan
  |
  |
  | LICENSE
@@ -654,6 +654,30 @@ class Buto
 	}
 	
 	/**
+	 | Get single setting
+	 | ------------------------------------------------------------------
+	 | Returns details about a single settings 'files' from its ID.
+	**/
+	
+	public function get_setting($setting_id = FALSE)
+	{
+		if (!$setting_id || $setting_id == '')
+		{
+			return FALSE;
+		}
+	
+		$dest						= $this->api_url.'/settings/setting/'.$setting_id;
+		$api_response				= $this->request($dest);
+		
+		if (!$api_response)
+		{
+			return FALSE;
+		}
+		
+		return new ButoSettings($api_response);			
+	}
+	
+	/**
 	 | Get Settings
 	 | ------------------------------------------------------------------
 	 | Returns all settings 'files' for an organisation.
@@ -662,6 +686,7 @@ class Buto
 	
 	public function get_settings()
 	{	
+		
 		$dest					= $this->api_url.'/settings/';
 		$api_response			= $this->request($dest);
 		
@@ -688,6 +713,30 @@ class Buto
 		}
 		
 		return $returned_settings;
+	}
+	
+	/**
+	 | Get single theme
+	 | ------------------------------------------------------------------
+	 | Returns details about a single theme from its ID.
+	**/
+	
+	public function get_theme($theme_id = FALSE)
+	{
+		if (!$theme_id || $theme_id == '')
+		{
+			return FALSE;
+		}
+	
+		$dest						= $this->api_url.'/themes/theme/'.$theme_id;
+		$api_response				= $this->request($dest);
+		
+		if (!$api_response)
+		{
+			return FALSE;
+		}
+		
+		return new ButoTheme($api_response);			
 	}
 	
 	/**
@@ -790,6 +839,171 @@ class Buto
 	}
 	
 	/**
+	 | Add tags
+	 | ------------------------------------------------------------------
+	 | Adds an array of tags to a video, based on video ID
+	 | If tag already exists duplicate is not added
+	 |
+	 | Upon success, returns the updated tags for the video
+	**/
+	
+	public function create_playlist($params = FALSE)
+	{
+		if (!$params || empty($params))
+		{
+			return FALSE;
+		}
+		
+		// add the tags array as XML
+		
+		$req = new SimpleXMLElement('<playlist></playlist>');
+		
+		$req->addChild('name', $params['name']);
+		$req->addChild('type', $params['type']);
+		$req->addChild('videos');
+		
+		foreach ($params['videos'] as $video)
+		{
+			$req->videos->addChild('video', $video);
+		}
+		
+		// make the request
+		
+		$dest					= $this->api_url.'/playlists/create/';
+		$api_response			= $this->request($dest, $req->asXML());
+		
+		if (!$api_response)
+		{
+			return FALSE;
+		}
+		
+		return new ButoPlaylist($api_response);
+	}
+	
+	/**
+	 | Get single user
+	 | ------------------------------------------------------------------
+	 | Returns details about a single user from an ID.
+	**/
+	
+	public function get_user($user_id = FALSE)
+	{
+		if (!$user_id || $user_id == '')
+		{
+			return FALSE;
+		}
+	
+		$dest						= $this->api_url.'/users/user/'.$user_id;
+		$api_response				= $this->request($dest);
+		
+		if (!$api_response)
+		{
+			return FALSE;
+		}
+		
+		return new ButoUser($api_response);			
+	}
+	
+	/**
+	 | Get users
+	 | ------------------------------------------------------------------
+	 | Returns all users in the system for the authenticated organisation.
+	 | returns FALSE on error and sets $errors var with output.
+	**/
+	
+	public function get_users()
+	{
+		$dest					= $this->api_url.'/users/';
+		$api_response			= $this->request($dest);
+		
+		if (!$api_response)
+		{
+			return FALSE;
+		}
+		
+		$returned_users = array();
+					
+		if (!is_array($api_response['user']))
+		// a single theme was returned
+		{
+			array_push($returned_users, new ButoUser(get_object_vars($api_response['user'])));
+		}
+		
+		else
+		// multiple themes were returned
+		{
+			foreach ($api_response['user'] as $api_response_user)
+			{
+				array_push($returned_users, new ButoUser(get_object_vars($api_response_user)));
+			}
+		}
+		
+		return $returned_users;
+	}	
+	
+	/**
+	 | Get transcript
+	 | ------------------------------------------------------------------
+	 | Returns transcript for a single caption from an ID.
+	**/
+	
+	public function get_transcript($caption_id = FALSE)
+	{
+		if (!$caption_id || $caption_id == '')
+		{
+			return FALSE;
+		}
+	
+		$dest						= $this->api_url.'/captions/'.$caption_id;
+		$api_response				= $this->request($dest);
+		
+		if (!$api_response)
+		{
+			return FALSE;
+		}
+		
+		return new ButoCaptions($api_response);			
+	}
+	
+	/**
+	 | Get captions
+	 | ------------------------------------------------------------------
+	 | Returns all captions with transcripts for a media file from a video ID.
+	 | returns FALSE on error and sets $errors var with output.
+	**/
+	
+	public function get_captions($video_id = FALSE)
+	{
+		$dest					= $this->api_url.'/captions/video/'.$video_id;
+		$api_response			= $this->request($dest);
+		
+		if (!$api_response)
+		{
+			return FALSE;
+		}
+		
+		$returned_captions = array();
+					
+		if (!is_array($api_response['caption']))
+		// a single theme was returned
+		{
+			array_push($returned_captions, new ButoCaptions(get_object_vars($api_response['caption'])));
+		}
+		
+		else
+		// multiple themes were returned
+		{
+			foreach ($api_response['caption'] as $api_response_caption)
+			{
+				array_push($returned_captions, new ButoCaptions(get_object_vars($api_response_caption)));
+			}
+		}
+		
+		return $returned_captions;
+	}	
+	
+	
+	/**
 	 | Request
 	 | ------------------------------------------------------------------
 	 | Creates a CURL request to the Buto API server and handles responses
@@ -825,7 +1039,8 @@ class Buto
     	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
     	
     	$result							= curl_exec($ch);
-		$info 							= curl_getinfo($ch); // also grab request info so we can get the response status.
+		$info 							= curl_getinfo($ch);
+		// also grab request info so we can get the response status.
     	curl_close($ch);
 		
 		if ($result)
@@ -913,4 +1128,6 @@ class ButoComment extends ButoResponse { }
 class ButoSettings extends ButoResponse { }
 class ButoPlaylist extends ButoResponse { }
 class ButoTheme extends ButoResponse { }
+class ButoUser extends ButoResponse { }
+class ButoCaptions extends ButoResponse { }
 ?>
