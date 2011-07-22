@@ -839,12 +839,11 @@ class Buto
 	}
 	
 	/**
-	 | Add tags
+	 | Create playlists
 	 | ------------------------------------------------------------------
-	 | Adds an array of tags to a video, based on video ID
-	 | If tag already exists duplicate is not added
+	 | Adds an array of videos to a new playlist.
 	 |
-	 | Upon success, returns the updated tags for the video
+	 | Upon success, returns the playlist details including video objects
 	**/
 	
 	public function create_playlist($params = FALSE)
