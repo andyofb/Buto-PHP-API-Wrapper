@@ -4,9 +4,11 @@
  |
  | BUTO PHP API WRAPPER
  | ================================================================================ 
- | Version: 0.8
- | Last modified: 22/07/2011
- | Last modified by: Irfan
+ | Version: 0.9
+ | Last modified: 01/05/2013
+ | Last modified by: HdotNET 
+ | Retired by the Buto Team 2013-05-01
+ | Refer to our API documentation on http://get.buto.tv/developer
  |
  |
  | LICENSE
@@ -34,10 +36,21 @@
  | system, the main Buto class should then be initiated with your API key.
  |
  | $key							= 'YOURAPIKEY';
- | $buto						= new Buto($key);
+ | $buto						= new Buto(array('api_key'=>$key));
+ |
+ | OR
+ |
+ | $key							= 'YOURAPIKEY';
+ | $buto						= new Buto();
+ | $buto->initialize(array('api_key'=>$key));
+ | // do some stuff using the normal object response
+ | // then re-initialize to change the response format
+ | $buto->initialize(array('response_format'=>'xml'));
+ | $video_xml = $buto->get_video($id); 
+ |
  |
  | Once initiated, simply pass the params needed to each function to set and
- | retrieve data from your Buto account.
+ | retrieve data from your Buto account. So when using the object response format:
  |
  | $id							= 'XXXXX';
  | $video						= $buto->get_video($id); 
@@ -53,14 +66,19 @@
 **/
 
 /**
- | CFPGROUP UPDATE: added some error detection for when a 404 is encountered.
+ | CFPSOLUTIONS UPDATE 2011-04-21: added some error detection for when a 404 is encountered.
+ | CFPSOLUTIONS UPDATE 2013-05-01: added checks for correct php modules installation (simplexml and curl)
+ | CFPSOLUTIONS UPDATE 2013-05-01: added new response_format config parameter to allow the return response to be made up of XML/ XML chunks
+ | CFPSOLUTIONS UPDATE 2013-05-01: added update_video method
+ | CFPSOLUTIONS UPDATE 2013-05-01: set api url to https
 */
 class Buto
 {
-	public $api_key		= NULL;
-	public $site_url	= 'http://buto.tv';
-	public $api_url		= 'http://api.buto.tv';
-	public $errors		= array();
+	public $api_key				= NULL;
+	public $site_url			= 'http://buto.tv';
+	private $api_url			= 'https://api.buto.tv';
+	public $response_format 	= 'object'; // object/xml
+	public $errors				= array();
 	
 	/**
 	 | Constructor
@@ -71,10 +89,113 @@ class Buto
 	 | $buto->api_key			= 'NEWAPIKEY';
 	**/
 	
-	public function __construct($key)
+	public function __construct($params = array())
 	{
-		$this->api_key = $key;
+		try {
+			$this->check_setup();
+		}
+		catch (Exception $e) 
+		{
+		   $this->errors[] = $e->getMessage();
+		   die(__METHOD__ . ' Fatal error : ' .$e->getMessage());
+		}
+		
+		if (count($params) > 0)
+		{
+			$this->initialize($params);
+		}
 	}
+	/**
+	 | Initialize api preferences
+	 | ------------------------------------------------------------------
+	 | array('api_key'=>'xxxx','response_format'=>'xxxx')
+	**/	 
+	public function initialize($params = array())
+	{
+		if (count($params) > 0)
+		{
+			foreach ($params as $key => $val)
+			{
+				$this->$key = $val;
+			}
+		}
+	}
+	private function check_setup()
+	{
+		if (!extension_loaded('curl')) 
+		{
+			throw new Exception('curl module is not installed');
+			return false;
+		}
+		if (!extension_loaded('simplexml')) 
+		{
+			throw new Exception('SimpleXML module is not installed');
+			return false;
+		}
+		return true;	
+	}
+	private function return_response($response,$object)
+	{
+		switch($this->response_format)
+		{
+			case 'xml':
+				return $response->asXML();
+			break;	
+			case 'array':
+				return get_object_vars($response);
+			break;	
+			default:
+				$response = get_object_vars($response);
+				return new $object($response);	
+			break;
+		}
+	}
+	private function process_response($response,$key,$object)
+	{
+		$returned = array();
+		$response = get_object_vars($response);
+		if (!is_array($response[$key]))
+		{
+			// a single item was returned
+			switch($this->response_format)
+			{
+				case 'xml':
+					$v = $response[$key]->asXML();
+				break;	
+				case 'array':
+					$v = get_object_vars($response[$key]);
+				break;	
+				default:
+					$v = new $object(get_object_vars($response[$key]));	
+				break;
+			}
+
+			array_push($returned, $v);
+		}
+		else
+		{
+			// multiple item were returned
+			foreach ($response[$key] as $r)
+			{
+				switch($this->response_format)
+				{
+					case 'xml':
+						$v = $r->asXML();
+					break;		
+					case 'array':
+						$v = get_object_vars($r);
+					break;
+					default:
+						$v = new $object(get_object_vars($r));	
+					break;
+				}
+				array_push($returned, $v);
+			}
+		}
+
+		return $returned;	
+	}
+	
 	
 	/**
 	 | Account - Get account info
@@ -92,7 +213,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoResponse($api_response);
+		return $this->return_response($api_response,'ButoResponse');
 	}
 	
 	/**
@@ -112,7 +233,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoVideo($api_response);
+		return $this->return_response($api_response,'ButoVideo');
 	}
 	
 	/**
@@ -135,24 +256,7 @@ class Buto
 			return FALSE;
 		}
 		
-		$returned_videos	= array();
-		
-		if (!is_array($api_response['video']))
-		// a single video was returned
-		{
-			array_push($returned_videos, new ButoVideo(get_object_vars($api_response['video'])));
-		}
-		
-		else
-		// multiple videos were returned
-		{
-			foreach ($api_response['video'] as $api_response_video)
-			{
-				array_push($returned_videos, new ButoVideo(get_object_vars($api_response_video)));
-			}
-		}
-		
-		return $returned_videos;
+		return $this->process_response($api_response,'video','ButoVideo');
 	}
 	
 	/**
@@ -231,24 +335,8 @@ class Buto
 			return FALSE;
 		}
 		
-		$returned_videos		= array();
-	
-		if (!is_array($api_response['video']))
-		// a single video was returned
-		{
-			array_push($returned_videos, new ButoVideo(get_object_vars($api_response['video'])));
-		}
 		
-		else
-		// multiple videos were returned
-		{
-			foreach ($api_response['video'] as $api_response_video)
-			{
-				array_push($returned_videos, new ButoVideo(get_object_vars($api_response_video)));
-			}
-		}
-		
-		return $returned_videos;
+		return $this->process_response($api_response,'video','ButoVideo');
 	}
 	
 	/**
@@ -314,7 +402,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoVideo($api_response);
+		return $this->return_response($api_response,'ButoVideo');
 	}
 	
 	/**
@@ -467,7 +555,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoResponse($api_response);
+		return $this->return_response($api_response,'ButoResponse');
 	}
 	
 	/**
@@ -505,7 +593,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoResponse($api_response);
+		return $this->return_response($api_response,'ButoResponse');
 	}
 	
 	/**
@@ -546,24 +634,9 @@ class Buto
 			return FALSE;
 		}
 		
-		$returned_comments = array();
-					
-		if (!is_array($api_response['comment']))
-		// a single comment was returned
-		{
-			array_push($returned_comments, new ButoComment(get_object_vars($api_response['comment'])));
-		}
 		
-		else
-		// multiple comments were returned
-		{
-			foreach ($api_response['comment'] as $api_response_comment)
-			{
-				array_push($returned_comments, new ButoComment(get_object_vars($api_response_comment)));
-			}
-		}
-		
-		return $returned_comments;
+		return $this->process_response($api_response,'comment','ButoComment');
+
 	}
 	
 	/**
@@ -599,7 +672,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoComment($api_response);
+		return $this->return_response($api_response,'ButoComment');
 	}
 	
 	/**
@@ -650,7 +723,7 @@ class Buto
 			return FALSE;
 		}	
 		
-		return new ButoComment($api_response);
+		return $this->return_response($api_response,'ButoComment');
 	}
 	
 	/**
@@ -674,7 +747,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoSettings($api_response);			
+		return $this->return_response($api_response,'ButoSettings');		
 	}
 	
 	/**
@@ -695,24 +768,8 @@ class Buto
 			return FALSE;
 		}
 		
-		$returned_settings = array();
-					
-		if (!is_array($api_response['settings']))
-		// a single settings 'file' was returned
-		{
-			array_push($returned_settings, new ButoSettings(get_object_vars($api_response['settings'])));
-		}
-		
-		else
-		// multiple settings 'files' were returned
-		{
-			foreach ($api_response['settings'] as $api_response_settings)
-			{
-				array_push($returned_settings, new ButoSettings(get_object_vars($api_response_settings)));
-			}
-		}
-		
-		return $returned_settings;
+		return $this->process_response($api_response,'settings','ButoSettings');
+
 	}
 	
 	/**
@@ -736,7 +793,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoTheme($api_response);			
+		return $this->return_response($api_response,'ButoTheme');				
 	}
 	
 	/**
@@ -755,25 +812,9 @@ class Buto
 		{
 			return FALSE;
 		}
-		
-		$returned_themes = array();
-					
-		if (!is_array($api_response['theme']))
-		// a single theme was returned
-		{
-			array_push($returned_themes, new ButoTheme(get_object_vars($api_response['theme'])));
-		}
-		
-		else
-		// multiple themes were returned
-		{
-			foreach ($api_response['theme'] as $api_response_theme)
-			{
-				array_push($returned_themes, new ButoTheme(get_object_vars($api_response_theme)));
-			}
-		}
-		
-		return $returned_themes;
+
+		return $this->process_response($api_response,'theme','ButoTheme');
+
 	}
 	
 	/**
@@ -798,7 +839,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoPlaylist($api_response);			
+		return $this->return_response($api_response,'ButoPlaylist');			
 	}
 	
 	/**
@@ -818,24 +859,11 @@ class Buto
 			return FALSE;
 		}
 		
-		$returned_playlists = array();
-					
-		if (!is_array($api_response['playlist']))
-		// a single playlist was returned
-		{
-			array_push($returned_playlists, new ButoPlaylist(get_object_vars($api_response['playlist'])));
-		}
 		
-		else
-		// multiple playlists were returned
-		{
-			foreach ($api_response['playlist'] as $api_response_playlist)
-			{
-				array_push($returned_playlists, new ButoPlaylist(get_object_vars($api_response_playlist)));
-			}
-		}
 		
-		return $returned_playlists;
+		return $this->process_response($api_response,'playlist','ButoPlaylist');
+		
+
 	}
 	
 	/**
@@ -876,7 +904,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoPlaylist($api_response);
+		return $this->return_response($api_response,'ButoPlaylist');	
 	}
 	
 	/**
@@ -899,8 +927,8 @@ class Buto
 		{
 			return FALSE;
 		}
-		
-		return new ButoUser($api_response);			
+				
+		return $this->return_response($api_response,'ButoUser');
 	}
 	
 	/**
@@ -920,24 +948,7 @@ class Buto
 			return FALSE;
 		}
 		
-		$returned_users = array();
-					
-		if (!is_array($api_response['user']))
-		// a single theme was returned
-		{
-			array_push($returned_users, new ButoUser(get_object_vars($api_response['user'])));
-		}
-		
-		else
-		// multiple themes were returned
-		{
-			foreach ($api_response['user'] as $api_response_user)
-			{
-				array_push($returned_users, new ButoUser(get_object_vars($api_response_user)));
-			}
-		}
-		
-		return $returned_users;
+		return $this->process_response($api_response,'user','ButoUser');
 	}	
 	
 	/**
@@ -961,7 +972,7 @@ class Buto
 			return FALSE;
 		}
 		
-		return new ButoCaptions($api_response);			
+		return $this->return_response($api_response,'ButoCaptions');		
 	}
 	
 	/**
@@ -981,32 +992,50 @@ class Buto
 			return FALSE;
 		}
 		
-		$returned_captions = array();
-					
-		if (!is_array($api_response['caption']))
-		// a single theme was returned
-		{
-			array_push($returned_captions, new ButoCaptions(get_object_vars($api_response['caption'])));
-		}
-		
-		else
-		// multiple themes were returned
-		{
-			foreach ($api_response['caption'] as $api_response_caption)
-			{
-				array_push($returned_captions, new ButoCaptions(get_object_vars($api_response_caption)));
-			}
-		}
-		
-		return $returned_captions;
+		return $this->process_response($api_response,'caption','ButoCaptions');
+
 	}	
-	
+	/**
+	 | Update video - update meta data only.
+	 | eg title, description
+	 | ------------------------------------------------------------------
+	 | Returns the updated video
+	 | Returns FALSE on error
+	**/
+	public function update_video($video_id,$params)
+	{
+		if (!is_array($params))
+		{
+			return FALSE;
+		}
+		
+		// build the request
+		
+		$dest = $this->api_url.'/videos/update/'.$video_id;
+		
+		$req = new SimpleXMLElement('<request></request>');
+		$req->addChild('id', $video_id);
+		foreach($params as $key=>$value)
+		{
+			$req->addChild($key,$value);
+		}
+		// make the request
+		
+		$api_response = $this->request($dest, $req->asXML());
+		
+		if (!$api_response)
+		{
+			return FALSE;
+		}
+		
+		return $this->return_response($api_response,'ButoVideo');
+	}
 	
 	/**
 	 | Request
 	 | ------------------------------------------------------------------
 	 | Creates a CURL request to the Buto API server and handles responses
-	 | A valid response is returned as the SimpleXML response converted into an array
+	 | A valid response is returned as the SimpleXML object
 	 | 
 	 | Errors are handled by returning FALSE and setting the $errors var
 	 | with the output of the error message for debugging
@@ -1014,7 +1043,7 @@ class Buto
 	
 	private function request($url, $xml = FALSE)
 	{
-		$ch						= curl_init($url);
+		$ch = curl_init($url);
 		
 		curl_setopt_array($ch, array(
       		CURLOPT_RETURNTRANSFER 		=> 1,
@@ -1044,13 +1073,10 @@ class Buto
 		
 		if ($result)
     	{
-			if (strpos($result, 'Error:') !== false)
-			// API response contained errors
+			if (strpos($result, 'Error:') !== false) // API response contained errors
 			{
 				// return the error message after the colon
-			
-				$this->errors[$url]		= substr($result, strpos($result, 'Error:') + 6);
-				
+				$this->errors[$url] = substr($result, strpos($result, 'Error:') + 6);
 				return FALSE;
 			}
 			
@@ -1068,13 +1094,13 @@ class Buto
 					try {
 						libxml_use_internal_errors(true); // this should suppress any XML errors.
 						$api_response_simple_xml = new SimpleXMLElement($result);
-						
-						return get_object_vars($api_response_simple_xml);
+						return $api_response_simple_xml;
 					}
-					
-					catch (Exception $e) {
+					catch (Exception $e) 
+					{
 					   return FALSE;
 					}
+			
 				}
 				
 				return TRUE;
